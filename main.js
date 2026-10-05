@@ -462,7 +462,7 @@ rulesDialog.innerHTML = `
     <h2>あそびかた</h2>
     ${ruleItemHTML('1. はじめの並び',
       { pieces: [...Array(COLS).keys()].flatMap((c) => [{ r: 0, c, stack: [1] }, { r: ROWS - 1, c, stack: [2] }]) },
-      '自分（白）は手前の列に5個、相手（黒）は奥の列に5個の駒で始まります。')}
+      '白（先手）は奥の列に、黒（後手）は手前の列に5個ずつ並べて始めます。')}
     ${ruleItemHTML('2. 動かし方',
       { pieces: [{ r: 2, c: 2, stack: [1] }], arrows: DIRS.map(([dr, dc]) => [[2, 2], [2 + dr, 2 + dc]]) },
       '自分の色が一番上の駒を1つ選び、縦横斜め8方向のどれかへ1マス動かします。')}
@@ -475,9 +475,9 @@ rulesDialog.innerHTML = `
         arrows: [[[5, 2], [ROWS, 2]], [[5, 4], [ROWS, 3]]], goalBottom: true },
       '相手側の一番奥の列から、さらに奥（ゴール）へ1マス進めたら勝ちです（斜めでもかまいません）。自分側の外へは出られません。')}
     ${ruleItemHTML('5. 動けなくなったら負け',
-      { pieces: [{ r: 2, c: 2, stack: [1] }, ...DIRS.map(([dr, dc]) => ({ r: 2 + dr, c: 2 + dc, stack: [1, 2, 1] }))],
-        marks: DIRS.map(([dr, dc]) => [2 + dr, 2 + dc]) },
-      '自分の駒が動かせる駒が1つもなくなったら、その場で負けです。')}
+      { pieces: [[1, 1], [1, 3], [3, 0], [3, 2], [4, 4]].map(([r, c]) => ({ r, c, stack: [1, 2] })),
+        marks: [[1, 1], [1, 3], [3, 0], [3, 2], [4, 4]] },
+      '自分の駒が全部相手に乗られるなどして、動かせる駒が1つもなくなったら、その場で負けです（図は白の負け）。')}
     <button class="pill pill--big" data-rules-close>戻る</button>
   </div>`;
 document.body.appendChild(rulesDialog);
