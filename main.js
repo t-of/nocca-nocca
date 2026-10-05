@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 // localStorage はほかのアプリと共有される（同じ t-of.github.io のため）。
 // キーは必ず 'nocca-nocca.' で始める。
@@ -115,6 +116,7 @@ const CPUVCPU_MOVE_LIMIT = 200; // 終わらない対局を止める
 function applyMove(mv) {
   const mover = G.turn;
   G.moveCount++;
+  moveAnim = { mv, fromH: G.board[mv.from].length - 1, t0: performance.now() };
   if (mv.exit) {
     G.exited = { from: mv.from, color: G.board[mv.from].at(-1) }; // ゴールの帯の上に残して見せる
     G.board[mv.from] = G.board[mv.from].slice(0, -1);
@@ -235,7 +237,7 @@ const marble = (base, vein, o = {}) => new THREE.MeshPhysicalMaterial({
 });
 
 const BOARD_W = COLS + 0.8, BOARD_D = ROWS + 0.8;
-const board = new THREE.Mesh(new THREE.BoxGeometry(BOARD_W, 0.36, BOARD_D), marble(0x3b3d40, 0x9a9da3));
+const board = new THREE.Mesh(new RoundedBoxGeometry(BOARD_W, 0.36, BOARD_D, 4, 0.1), marble(0x3b3d40, 0x9a9da3));
 board.position.y = -0.18;
 scene.add(board);
 
@@ -275,6 +277,7 @@ scene.add(board);
     if (controls.autoRotate) controls.update();
     else if (wasHome && !home) { camera.position.copy(HOME_CAM); controls.update(); }
     wasHome = home;
+    if (animate(performance.now())) draw();
     requestAnimationFrame(spin);
   };
   requestAnimationFrame(spin);
@@ -286,7 +289,7 @@ function cellZ(i) { return rowOf(i) - (ROWS - 1) / 2; }
 const GOAL_Z = { 1: cellZ(idx(ROWS - 1, 0)) + 1, 2: cellZ(idx(0, 0)) - 1 };
 
 const CELL_MAT = [marble(0xb9b4ab, 0x7d7871, { clearcoat: 0.3 }), marble(0x8e8a84, 0x5f5b56, { clearcoat: 0.3 })]; // 市松に濃淡
-const cellGeo = new THREE.BoxGeometry(0.94, 0.03, 0.94);
+const cellGeo = new RoundedBoxGeometry(0.94, 0.03, 0.94, 2, 0.014);
 const cellMeshes = [...Array(COLS * ROWS).keys()].map((i) => {
   const shade = (rowOf(i) + colOf(i)) % 2;
   const m = new THREE.Mesh(cellGeo, CELL_MAT[shade]);
@@ -311,7 +314,7 @@ for (const p of [1, 2]) {
 
 // 駒：先手は白、後手は黒の大理石の立方体
 const CHIP_H = 0.56;
-const CHIP_GEO = new THREE.BoxGeometry(CHIP_H, CHIP_H, CHIP_H);
+const CHIP_GEO = new RoundedBoxGeometry(CHIP_H, CHIP_H, CHIP_H, 4, 0.07);
 const CHIP_MAT = { 1: marble(0xf4f2ee, 0x9c9ea4), 2: marble(0x17181b, 0x8a8d94) };
 function chipMesh(color) { return new THREE.Mesh(CHIP_GEO, CHIP_MAT[color]); }
 
@@ -346,22 +349,30 @@ scene.add(pieceGroup);
 function syncScene(b = G ? G.board : DEMO) {
   scene.remove(pieceGroup);
   pieceGroup = new THREE.Group();
+  movingMesh = selMesh = null;
+  const mv = G && moveAnim ? moveAnim.mv : null;
   b.forEach((stack, i) => {
     stack.forEach((color, h) => {
       const m = chipMesh(color);
-      m.position.set(cellX(i), (h + 0.5) * CHIP_H + 0.03, cellZ(i));
+      m.position.set(cellX(i), chipY(h), cellZ(i));
       m.userData.cell = i;
+      m.userData.base = m.position.clone();
       pieceGroup.add(m);
+      if (h === stack.length - 1 && mv && !mv.exit && mv.to === i) movingMesh = m;
+      if (h === stack.length - 1 && G && G.sel === i) selMesh = m;
     });
     const kind = cellHighlight(i);
     if (kind) pieceGroup.add(highlightMesh(kind, i));
   });
   if (G && G.exited) {
     const m = chipMesh(G.exited.color);
-    m.position.set(cellX(G.exited.from), CHIP_H / 2 + 0.03, GOAL_Z[G.exited.color]);
+    m.position.set(cellX(G.exited.from), chipY(0), GOAL_Z[G.exited.color]);
+    m.userData.base = m.position.clone();
     pieceGroup.add(m);
+    if (mv && mv.exit) movingMesh = m;
   }
   scene.add(pieceGroup);
+  animate(performance.now());
   for (const p of [1, 2]) {
     const canExit = !!G && G.sel != null && canInteract() && legalMoves(G.board, G.turn).some((m) => m.from === G.sel && m.exit && G.turn === p);
     goalMeshes[p].visible = canExit;
@@ -370,6 +381,40 @@ function syncScene(b = G ? G.board : DEMO) {
 }
 
 function draw() { renderer.render(scene, camera); }
+
+// ---- 動き。駒は弧を描いて跳び、着地で少しつぶれる。選んだ駒は浮いてゆれる ----
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)');
+const HOP_MS = 360;
+let moveAnim = null, movingMesh = null, selMesh = null, lastSel = null, selT0 = 0;
+function chipY(h) { return (h + 0.5) * CHIP_H + 0.03; }
+const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
+// 何か動かしたら true（呼んだ側で描き直す）
+function animate(now) {
+  let moved = false;
+  if (movingMesh && moveAnim) {
+    const t = reduceMotion.matches ? 1 : Math.min(1, (now - moveAnim.t0) / HOP_MS);
+    const { mv, fromH } = moveAnim;
+    const end = movingMesh.userData.base;
+    const sx = cellX(mv.from), sy = chipY(fromH), sz = cellZ(mv.from);
+    const k = ease(t);
+    movingMesh.position.set(sx + (end.x - sx) * k, sy + (end.y - sy) * k + Math.sin(Math.PI * t) * 0.7, sz + (end.z - sz) * k);
+    // 着地の瞬間だけ縦につぶす
+    const land = t > 0.85 ? Math.sin(((t - 0.85) / 0.15) * Math.PI) * 0.12 : 0;
+    movingMesh.scale.set(1 + land / 2, 1 - land, 1 + land / 2);
+    movingMesh.position.y -= (CHIP_H * land) / 2;
+    if (t >= 1) { movingMesh.scale.set(1, 1, 1); movingMesh.position.copy(end); movingMesh = null; moveAnim = null; }
+    moved = true;
+  }
+  const sel = G ? G.sel : null;
+  if (sel !== lastSel) { lastSel = sel; selT0 = now; }
+  if (selMesh) {
+    const up = reduceMotion.matches ? 1 : Math.min(1, (now - selT0) / 180);
+    const bob = reduceMotion.matches ? 0 : Math.sin((now - selT0) / 260) * 0.03;
+    selMesh.position.y = selMesh.userData.base.y + ease(up) * 0.18 + bob * up;
+    moved = true;
+  }
+  return moved;
+}
 new ResizeObserver(() => {
   const w = canvas.clientWidth, h = canvas.clientHeight;
   if (!w || !h) return;
