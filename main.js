@@ -116,7 +116,8 @@ function applyMove(mv) {
   const mover = G.turn;
   G.moveCount++;
   if (mv.exit) {
-    G.board[mv.from] = G.board[mv.from].slice(0, -1); // 盤からは消える（ゴールへ出た）
+    G.exited = { from: mv.from, color: G.board[mv.from].at(-1) }; // ゴールの帯の上に残して見せる
+    G.board[mv.from] = G.board[mv.from].slice(0, -1);
     G.winner = mover;
   } else {
     G.board[mv.to].push(G.board[mv.from].pop());
@@ -355,6 +356,11 @@ function syncScene(b = G ? G.board : DEMO) {
     const kind = cellHighlight(i);
     if (kind) pieceGroup.add(highlightMesh(kind, i));
   });
+  if (G && G.exited) {
+    const m = chipMesh(G.exited.color);
+    m.position.set(cellX(G.exited.from), CHIP_H / 2 + 0.03, GOAL_Z[G.exited.color]);
+    pieceGroup.add(m);
+  }
   scene.add(pieceGroup);
   for (const p of [1, 2]) {
     const canExit = !!G && G.sel != null && canInteract() && legalMoves(G.board, G.turn).some((m) => m.from === G.sel && m.exit && G.turn === p);
