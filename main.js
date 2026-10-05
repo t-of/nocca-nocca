@@ -342,6 +342,7 @@ function highlightMesh(kind, i) {
   const m = new THREE.Mesh(ringGeo, RING_STYLE[kind]);
   m.rotation.x = -Math.PI / 2;
   m.position.set(cellX(i), 0.035, cellZ(i));
+  m.userData.cell = i;
   return m;
 }
 function cellHighlight(i) {
@@ -364,6 +365,7 @@ function syncScene(b = G ? G.board : DEMO) {
     stack.forEach((color, h) => {
       const m = chipMesh(color);
       m.position.set(cellX(i), (h + 0.5) * CHIP_H + 0.03, cellZ(i));
+      m.userData.cell = i;
       pieceGroup.add(m);
     });
     const kind = cellHighlight(i);
@@ -398,10 +400,14 @@ canvas.addEventListener('pointerup', (e) => {
   const r = canvas.getBoundingClientRect();
   const ray = new THREE.Raycaster();
   ray.setFromCamera(new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1), camera);
-  const hit = ray.intersectObjects([...cellMeshes, ...Object.values(goalMeshes), pieceGroup], true)[0];
+  const goals = Object.values(goalMeshes).filter((m) => m.visible);
+  const hit = ray.intersectObjects([...cellMeshes, ...goals, pieceGroup, board], true)[0];
   if (!hit) return;
-  if (hit.object.userData.goal != null) onGoalTap(hit.object.userData.goal);
-  else if (hit.object.userData.cell != null) onCellTap(hit.object.userData.cell);
+  if (hit.object.userData.goal != null) return onGoalTap(hit.object.userData.goal);
+  if (hit.object.userData.cell != null) return onCellTap(hit.object.userData.cell);
+  // マスのすき間や盤のふちは、いちばん近いマスとして扱う
+  const c = Math.round(hit.point.x + (COLS - 1) / 2), rw = Math.round(hit.point.z + (ROWS - 1) / 2);
+  if (c >= 0 && c < COLS && rw >= 0 && rw < ROWS) onCellTap(idx(rw, c));
 });
 
 // ---- 画面 ----
