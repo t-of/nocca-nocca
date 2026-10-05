@@ -418,6 +418,74 @@ canvas.addEventListener('pointerup', (e) => {
   if (c >= 0 && c < COLS && rw >= 0 && rw < ROWS) onCellTap(idx(rw, c));
 });
 
+// ---- ルール画面（本物の盤の図つき。overlay の <dialog> で対局・タイトルの上に重ねる） ----
+// 図は 5×6 マスを上から見た SVG。駒は var(--p1)/var(--p2) で chip--a/b と同じ色にする
+function arrowSvg(x1, y1, x2, y2) {
+  const ang = Math.atan2(y2 - y1, x2 - x1), shrink = 10, ah = 5;
+  const ex = x2 - Math.cos(ang) * shrink, ey = y2 - Math.sin(ang) * shrink;
+  const p1 = [ex - ah * Math.cos(ang - 0.5), ey - ah * Math.sin(ang - 0.5)];
+  const p2 = [ex - ah * Math.cos(ang + 0.5), ey - ah * Math.sin(ang + 0.5)];
+  return `<line x1="${x1}" y1="${y1}" x2="${ex}" y2="${ey}" stroke="var(--accent)" stroke-width="2"/>
+    <polygon points="${ex},${ey} ${p1[0]},${p1[1]} ${p2[0]},${p2[1]}" fill="var(--accent)"/>`;
+}
+function xMarkSvg(x, y) {
+  return `<line x1="${x - 8}" y1="${y - 8}" x2="${x + 8}" y2="${y + 8}" stroke="#e06464" stroke-width="3"/>
+    <line x1="${x - 8}" y1="${y + 8}" x2="${x + 8}" y2="${y - 8}" stroke="#e06464" stroke-width="3"/>`;
+}
+function ruleSvg({ pieces = [], arrows = [], marks = [], goalBottom = false }) {
+  const CS = 28, GB = 22, w = COLS * CS, h = ROWS * CS;
+  const totalH = h + (goalBottom ? GB : 0);
+  const cx = (c) => c * CS + CS / 2;
+  const cy = (r) => (r >= ROWS ? h + GB / 2 : r * CS + CS / 2); // r===ROWS はゴールの帯
+  let s = `<svg viewBox="0 0 ${w} ${totalH}">`;
+  for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) {
+    s += `<rect x="${c * CS}" y="${r * CS}" width="${CS}" height="${CS}" fill="${(r + c) % 2 ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.02)'}" stroke="rgba(255,255,255,0.15)"/>`;
+  }
+  if (goalBottom) s += `<rect x="0" y="${h}" width="${w}" height="${GB}" fill="var(--p1)" opacity="0.18"/>`;
+  for (const { r, c, stack } of pieces) {
+    stack.forEach((color, k) => {
+      s += `<circle cx="${cx(c)}" cy="${cy(r) - k * 4}" r="9" fill="var(--p${color})" stroke="rgba(0,0,0,0.4)"/>`;
+    });
+    if (stack.length > 1) s += `<text x="${cx(c) + 9}" y="${cy(r) - stack.length * 4 + 5}" font-size="10" fill="var(--accent)">${stack.length}</text>`;
+  }
+  for (const [[r1, c1], [r2, c2]] of arrows) s += arrowSvg(cx(c1), cy(r1), cx(c2), cy(r2));
+  for (const [r, c] of marks) s += xMarkSvg(cx(c), cy(r));
+  return s + '</svg>';
+}
+function ruleItemHTML(title, svgOpts, text) {
+  return `<section class="rules__item"><h3>${title}</h3>${ruleSvg(svgOpts)}<p>${text}</p></section>`;
+}
+const rulesDialog = document.createElement('dialog');
+rulesDialog.className = 'rules';
+rulesDialog.innerHTML = `
+  <div class="rules__body">
+    <h2>あそびかた</h2>
+    ${ruleItemHTML('1. はじめの並び',
+      { pieces: [...Array(COLS).keys()].flatMap((c) => [{ r: 0, c, stack: [1] }, { r: ROWS - 1, c, stack: [2] }]) },
+      '自分（白）は手前の列に5個、相手（黒）は奥の列に5個の駒で始まります。')}
+    ${ruleItemHTML('2. 動かし方',
+      { pieces: [{ r: 2, c: 2, stack: [1] }], arrows: DIRS.map(([dr, dc]) => [[2, 2], [2 + dr, 2 + dc]]) },
+      '自分の色が一番上の駒を1つ選び、縦横斜め8方向のどれかへ1マス動かします。')}
+    ${ruleItemHTML('3. 積む',
+      { pieces: [{ r: 3, c: 1, stack: [1, 2] }, { r: 2, c: 3, stack: [2] }, { r: 3, c: 3, stack: [1, 2, 1] }],
+        arrows: [[[2, 3], [3, 3]]], marks: [[3, 3]] },
+      '駒の上には、相手の駒にも自分の駒にも乗れます（3段まで）。3段の山には乗れず、山の一番上の色の人だけがその山を動かせます。')}
+    ${ruleItemHTML('4. 勝ち方',
+      { pieces: [{ r: 5, c: 2, stack: [1] }, { r: 5, c: 4, stack: [1] }],
+        arrows: [[[5, 2], [ROWS, 2]], [[5, 4], [ROWS, 3]]], goalBottom: true },
+      '相手側の一番奥の列から、さらに奥（ゴール）へ1マス進めたら勝ちです（斜めでもかまいません）。自分側の外へは出られません。')}
+    ${ruleItemHTML('5. 動けなくなったら負け',
+      { pieces: [{ r: 2, c: 2, stack: [1] }, ...DIRS.map(([dr, dc]) => ({ r: 2 + dr, c: 2 + dc, stack: [1, 2, 1] }))],
+        marks: DIRS.map(([dr, dc]) => [2 + dr, 2 + dc]) },
+      '自分の駒が動かせる駒が1つもなくなったら、その場で負けです。')}
+    <button class="pill pill--big" data-rules-close>戻る</button>
+  </div>`;
+document.body.appendChild(rulesDialog);
+rulesDialog.querySelector('[data-rules-close]').addEventListener('click', () => rulesDialog.close());
+function bindRulesButtons() {
+  document.querySelectorAll('[data-rules]').forEach((b) => b.addEventListener('click', () => rulesDialog.showModal()));
+}
+
 // ---- 画面 ----
 function render() {
   const stage = document.getElementById('stage');
@@ -452,10 +520,12 @@ function titleHTML() {
       <button class="pill pill--big" data-start="cpu">CPU と対戦</button>
       <button class="pill pill--big" data-start="2p">2人で対戦（1台で交互）</button>
       <button class="pill pill--big" data-start="cpuvcpu">CPU 同士の対戦を見る</button>
+      <button class="pill" data-rules>ルール</button>
     </div>`;
 }
 function bindTitle() {
   document.querySelectorAll('[data-start]').forEach((b) => b.addEventListener('click', () => newGame(b.dataset.start)));
+  bindRulesButtons();
 }
 
 function statusText() {
@@ -479,6 +549,7 @@ function gameHTML() {
     <div class="game">
       <div class="topbar">
         <button class="pill pill--home" data-title>ホーム</button>
+        <button class="pill pill--home" data-rules>ルール</button>
         <p class="status">${statusText()}</p>
       </div>
       ${handsRow}
@@ -491,6 +562,7 @@ function bindGame() {
   const again = document.querySelector('[data-again]');
   if (again) again.addEventListener('click', () => newGame(G.mode));
   document.querySelectorAll('[data-title]').forEach((b) => b.addEventListener('click', goHome));
+  bindRulesButtons();
 }
 // 対局・観戦画面の「ホーム」。決着済み（勝ち負け・引き分け）や観戦中は確認なしで戻る
 function goHome() {

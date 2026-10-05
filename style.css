@@ -112,6 +112,24 @@ body {
   font-weight: 600;
 }
 .pill--big:active { transform: translateY(1px); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4); }
+/* ルール画面（title・対局の上に重ねる dialog。対局の状態はそのまま） */
+.rules { position: fixed; inset: 0; margin: 0; width: 100%; height: 100%; max-width: none; max-height: none; border: none; padding: 0; background: var(--bg); color: var(--fg); }
+.rules::backdrop { background: rgba(0, 0, 0, 0.6); }
+.rules__body {
+  height: 100%;
+  overflow-y: auto;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.rules__body h2 { margin: 0; }
+.rules__item { width: 100%; max-width: 320px; text-align: center; }
+.rules__item h3 { margin: 0 0 6px; font-size: 15px; }
+.rules__item svg { width: 100%; max-width: 220px; height: auto; }
+.rules__item p { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+
 /* 床が 3D の枠で四角く切れて見えないよう、上下のふちをぼかす */
 canvas {
   -webkit-mask-image: linear-gradient(transparent, #000 7%, #000 93%, transparent);
