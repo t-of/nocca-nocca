@@ -2,6 +2,19 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
+// localStorage はほかのアプリと共有される（同じ t-of.github.io のため）。
+// キーは必ず 'nocca-nocca.' で始める。
+const STORE = 'nocca-nocca.';
+function load(key, fallback) {
+  try {
+    const v = localStorage.getItem(STORE + key);
+    return v == null ? fallback : JSON.parse(v);
+  } catch { return fallback; }
+}
+function save(key, value) {
+  try { localStorage.setItem(STORE + key, JSON.stringify(value)); } catch { /* 保存できなくても遊べる */ }
+}
+
 WebAppKit.init({ title: 'NOCCA*NOCCA', text: '縦横斜めに1マス動かし、相手の奥へ駒を進めたら勝ちの2人対戦ボードゲーム。' });
 
 if ('serviceWorker' in navigator) {
@@ -75,56 +88,15 @@ function legalMoves(board, player) {
 }
 function other(p) { return p === 1 ? 2 : 1; }
 
-// ---- CPU（簡単な先読み + αβ 枝刈り） ----
-const SEARCH_PLIES = 3; // この手を含め 3 手先まで読む
-const WIN_SCORE = 1e6;
-function evaluate(board, cpu) {
-  let score = 0;
-  for (let i = 0; i < board.length; i++) {
-    const r = rowOf(i);
-    for (const color of board[i]) {
-      const progress = color === 1 ? r : ROWS - 1 - r; // ゴールに近いほど大きい
-      score += (color === cpu ? 1 : -1) * progress;
-    }
-  }
-  return score;
-}
-function search(board, player, depth, cpu, alpha, beta) {
-  const moves = legalMoves(board, player);
-  if (moves.length === 0) return player === cpu ? -WIN_SCORE : WIN_SCORE; // 動けない方の負け
-  if (moves.some((m) => m.exit)) return player === cpu ? WIN_SCORE : -WIN_SCORE; // 動く側がそのまま勝つ
-  if (depth === 0) return evaluate(board, cpu);
-  const maximizing = player === cpu;
-  let best = maximizing ? -Infinity : Infinity;
-  for (const mv of moves) {
-    const nb = board.map((s) => s.slice());
-    nb[mv.to].push(nb[mv.from].pop());
-    const val = search(nb, other(player), depth - 1, cpu, alpha, beta);
-    if (maximizing) { best = Math.max(best, val); alpha = Math.max(alpha, val); }
-    else { best = Math.min(best, val); beta = Math.min(beta, val); }
-    if (beta <= alpha) break;
-  }
-  return best;
-}
-function chooseCpuMove(board, player) {
-  const moves = legalMoves(board, player);
-  const exitMove = moves.find((m) => m.exit);
-  if (exitMove) return exitMove; // 勝てるならすぐ勝つ
-  let bestVal = -Infinity, bests = [];
-  for (const mv of moves) {
-    const nb = board.map((s) => s.slice());
-    nb[mv.to].push(nb[mv.from].pop());
-    const val = search(nb, other(player), SEARCH_PLIES - 1, player, -Infinity, Infinity);
-    if (val > bestVal) { bestVal = val; bests = [mv]; } else if (val === bestVal) bests.push(mv);
-  }
-  return bests[(Math.random() * bests.length) | 0];
-}
+// ---- CPU（ai.js を Worker で動かす） ----
+const cpu = new Worker('./ai.js', { type: 'module' });
+let cpuAsk = 0; // やり直したあとに前の局の答えが届いても使わない
 
 let G = null; // 対局中の状態。null ならタイトル（モード選択）画面
 let thinking = false;
 
-function newGame(mode) {
-  G = { mode, board: initialBoard(), turn: 1, winner: null, draw: false, sel: null, moveCount: 0 };
+function newGame(mode, strength) {
+  G = { mode, strength: strength || load('strength', 'mid'), board: initialBoard(), turn: 1, winner: null, draw: false, sel: null, moveCount: 0 };
   thinking = false;
   render();
   maybeCpuTurn();
@@ -183,14 +155,18 @@ function maybeCpuTurn() {
   thinking = true;
   render();
   const game = G;
-  // CPU 同士の観戦は手が追えるよう長めに間をあける
-  const delay = G.mode === 'cpuvcpu' ? 600 + Math.random() * 200 : 300;
-  setTimeout(() => {
-    if (G !== game) return;
-    const mv = chooseCpuMove(G.board, G.turn);
-    thinking = false;
-    applyMove(mv);
-  }, delay);
+  const id = ++cpuAsk;
+  // CPU 同士の観戦は手が追えるよう長めに間をあける（最強は考える時間そのものが間になる）
+  const delay = G.mode === 'cpuvcpu' ? 500 : 200;
+  cpu.onmessage = (e) => {
+    if (e.data.id !== cpuAsk || G !== game) return;
+    setTimeout(() => {
+      if (G !== game) return;
+      thinking = false;
+      applyMove(e.data.mv);
+    }, delay);
+  };
+  cpu.postMessage({ id, board: G.board, player: G.turn, strength: G.strength });
 }
 
 // ---- 3D の盤（three.js）。盤も駒も磨いた大理石 ----
@@ -512,11 +488,21 @@ const DEMO = (() => {
 })();
 
 function titleHTML() {
+  const strength = load('strength', 'mid');
   return `
     <div class="title">
       <h2>NOCCA*NOCCA</h2>
       <p class="hint">自分の駒を縦横斜めに1マス動かす。駒の上に乗ってもよい（3段まで）。相手側の奥の列からさらに奥（ゴール）へ進めたら勝ち。</p>
       <div class="board3d" id="board3d"></div>
+      <div class="opts">
+        <label>CPU の強さ
+          <select id="strength">
+            <option value="weak"${strength === 'weak' ? ' selected' : ''}>よわい</option>
+            <option value="mid"${strength === 'mid' ? ' selected' : ''}>ふつう</option>
+            <option value="strong"${strength === 'strong' ? ' selected' : ''}>最強</option>
+          </select>
+        </label>
+      </div>
       <button class="pill pill--big" data-start="cpu">CPU と対戦</button>
       <button class="pill pill--big" data-start="2p">2人で対戦（1台で交互）</button>
       <button class="pill pill--big" data-start="cpuvcpu">CPU 同士の対戦を見る</button>
@@ -524,7 +510,9 @@ function titleHTML() {
     </div>`;
 }
 function bindTitle() {
-  document.querySelectorAll('[data-start]').forEach((b) => b.addEventListener('click', () => newGame(b.dataset.start)));
+  const strengthSelect = document.getElementById('strength');
+  strengthSelect.addEventListener('change', () => save('strength', strengthSelect.value));
+  document.querySelectorAll('[data-start]').forEach((b) => b.addEventListener('click', () => newGame(b.dataset.start, strengthSelect.value)));
   bindRulesButtons();
 }
 
@@ -560,7 +548,7 @@ function gameHTML() {
 }
 function bindGame() {
   const again = document.querySelector('[data-again]');
-  if (again) again.addEventListener('click', () => newGame(G.mode));
+  if (again) again.addEventListener('click', () => newGame(G.mode, G.strength));
   document.querySelectorAll('[data-title]').forEach((b) => b.addEventListener('click', goHome));
   bindRulesButtons();
 }
