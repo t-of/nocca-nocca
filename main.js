@@ -185,7 +185,7 @@ function maybeCpuTurn() {
   }, 300);
 }
 
-// ---- 3D の盤（three.js）。qawale と同じ木の質感 ----
+// ---- 3D の盤（three.js）。盤も駒も磨いた大理石 ----
 const canvas = document.createElement('canvas');
 canvas.className = 'board3d__canvas';
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
@@ -205,82 +205,73 @@ controls.target.set(0, 0.3, 0);
 controls.update();
 controls.addEventListener('change', draw);
 
-scene.add(new THREE.HemisphereLight(0xfff4e0, 0x3a2e24, 0.5));
+scene.add(new THREE.HemisphereLight(0xf4f6fa, 0x3a3c40, 0.55));
 const sun = new THREE.DirectionalLight(0xffffff, 1.2);
 sun.position.set(3, 8, 4);
 scene.add(sun);
 
-function woodTexture() {
-  const S = 256;
+// 大理石の模様。ゆらいだ縞（fbm で曲げた sin）を筋にして、地の色に筋の色を混ぜる
+function marbleTexture(base, vein, S = 256) {
+  const N = 8, lat = Array.from({ length: N * N }, Math.random);
+  const at = (x, y) => lat[((y % N + N) % N) * N + ((x % N + N) % N)];
+  const smooth = (t) => t * t * (3 - 2 * t);
+  const noise = (x, y) => {
+    const xi = Math.floor(x), yi = Math.floor(y), u = smooth(x - xi), v = smooth(y - yi);
+    const a = at(xi, yi) + (at(xi + 1, yi) - at(xi, yi)) * u;
+    const b = at(xi, yi + 1) + (at(xi + 1, yi + 1) - at(xi, yi + 1)) * u;
+    return a + (b - a) * v;
+  };
+  const fbm = (x, y) => { let s = 0, amp = 0.5; for (let o = 0; o < 4; o++) { s += amp * noise(x, y); x *= 2; y *= 2; amp /= 2; } return s; };
   const c = document.createElement('canvas');
   c.width = c.height = S;
   const g = c.getContext('2d');
   const img = g.createImageData(S, S);
+  const B = new THREE.Color(base), V = new THREE.Color(vein);
   for (let y = 0; y < S; y++) {
     for (let x = 0; x < S; x++) {
-      const t = (y + 9 * Math.sin((2 * Math.PI * x) / S * 2) + 3 * Math.sin((2 * Math.PI * x) / S * 7)) / S;
-      const ring = Math.pow(0.5 + 0.5 * Math.sin(2 * Math.PI * t * 14), 6);
-      const v = 255 * (0.9 - 0.16 * ring + (Math.random() - 0.5) * 0.05);
+      const u = (x / S) * N / 2, w = (y / S) * N / 2;
+      const t = Math.abs(Math.sin((x + y * 0.7) / S * Math.PI * 3 + fbm(u, w) * 9));
+      const k = Math.min(1, Math.pow(1 - t, 10) * 0.9 + Math.pow(1 - t, 3) * 0.12 + (fbm(u * 4, w * 4) - 0.5) * 0.12);
       const p = (y * S + x) * 4;
-      img.data[p] = img.data[p + 1] = img.data[p + 2] = v;
+      img.data[p] = 255 * (B.r + (V.r - B.r) * k);
+      img.data[p + 1] = 255 * (B.g + (V.g - B.g) * k);
+      img.data[p + 2] = 255 * (B.b + (V.b - B.b) * k);
       img.data[p + 3] = 255;
     }
   }
   g.putImageData(img, 0, 0);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.anisotropy = 4;
   return tex;
 }
-const GRAIN = woodTexture();
-const wood = (color, o = {}) => new THREE.MeshPhysicalMaterial({
-  color, map: GRAIN, roughness: 0.5, clearcoat: 0.35, clearcoatRoughness: 0.35, envMapIntensity: 0.7, side: THREE.DoubleSide, ...o,
+const marble = (base, vein, o = {}) => new THREE.MeshPhysicalMaterial({
+  map: marbleTexture(base, vein), roughness: 0.22, clearcoat: 0.6, clearcoatRoughness: 0.15, envMapIntensity: 0.8, ...o,
 });
 
 const BOARD_W = COLS + 0.8, BOARD_D = ROWS + 0.8;
-const board = new THREE.Mesh(new THREE.BoxGeometry(BOARD_W, 0.36, BOARD_D), wood(0x6a4329, { clearcoat: 0.5 }));
+const board = new THREE.Mesh(new THREE.BoxGeometry(BOARD_W, 0.36, BOARD_D), marble(0x3b3d40, 0x9a9da3));
 board.position.y = -0.18;
 scene.add(board);
 
-// ---- 机の天板。盤の下に木の板を敷き、ランプに照らされたようにふちを背景へ溶かす ----
+// ---- 盤の下に大きな大理石の床を敷き、ふちを背景へ溶かす ----
 {
   const w = Math.max(BOARD_W, BOARD_D);
-  const S = 1024, PLANK = 128;
+  const S = 512;
   const c = document.createElement('canvas');
   c.width = c.height = S;
   const g = c.getContext('2d');
-  ['#4b3121', '#432b1c', '#503524', '#472f1f'].forEach((col, i) => {
-    for (let y = i * PLANK; y < S; y += PLANK * 4) {
-      g.save();
-      g.beginPath(); g.rect(0, y, S, PLANK); g.clip();
-      g.fillStyle = col; g.fillRect(0, y, S, PLANK);
-      for (let k = 0; k < 36; k++) {
-        const y0 = y + Math.random() * PLANK, a = 2 + Math.random() * 4, f = 60 + Math.random() * 120;
-        g.strokeStyle = `rgba(24, 12, 4, ${0.06 + Math.random() * 0.14})`;
-        g.lineWidth = 0.5 + Math.random() * 2;
-        g.beginPath();
-        for (let x = 0; x <= S; x += 16) g.lineTo(x, y0 + a * Math.sin(x / f + k));
-        g.stroke();
-      }
-      g.restore();
-      g.fillStyle = 'rgba(0, 0, 0, 0.45)'; g.fillRect(0, y, S, 2);
-    }
-  });
+  g.drawImage(marbleTexture(0x2a2c30, 0x5d6067, S).image, 0, 0);
   const r = S / 2, inner = (w * 0.62) / (w * 3.2);
-  const lamp = g.createRadialGradient(r, r, 0, r, r, r);
-  lamp.addColorStop(0, '#000'); lamp.addColorStop(inner, 'rgba(0, 0, 0, 0.9)'); lamp.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  const fade = g.createRadialGradient(r, r, 0, r, r, r);
+  fade.addColorStop(0, '#000'); fade.addColorStop(inner, 'rgba(0, 0, 0, 0.9)'); fade.addColorStop(1, 'rgba(0, 0, 0, 0)');
   g.globalCompositeOperation = 'destination-in';
-  g.fillStyle = lamp; g.fillRect(0, 0, S, S);
-  g.globalCompositeOperation = 'source-over';
-  const shade = g.createRadialGradient(r, r, 0, r, r, r * 0.48);
-  shade.addColorStop(0, 'rgba(0, 0, 0, 0.55)'); shade.addColorStop(0.55, 'rgba(0, 0, 0, 0.4)'); shade.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  g.fillStyle = shade; g.fillRect(0, 0, S, S);
+  g.fillStyle = fade; g.fillRect(0, 0, S, S);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
   const table = new THREE.Mesh(new THREE.PlaneGeometry(w * 3.2, w * 3.2),
-    new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, roughness: 0.75, envMapIntensity: 0.4 }));
+    new THREE.MeshStandardMaterial({ map: tex, transparent: true, depthWrite: false, roughness: 0.3, envMapIntensity: 0.5 }));
   table.rotation.x = -Math.PI / 2;
   table.position.y = -0.18 - 0.18 - 0.01;
   table.renderOrder = -1;
@@ -309,11 +300,11 @@ function cellZ(i) { return rowOf(i) - (ROWS - 1) / 2; }
 // ゴールの帯の位置（奥へ 1 マス分）
 const GOAL_Z = { 1: cellZ(idx(ROWS - 1, 0)) + 1, 2: cellZ(idx(0, 0)) - 1 };
 
-const CELL_BASE = [0x4a2e1c, 0x3d2516]; // 市松に濃淡
+const CELL_MAT = [marble(0xb9b4ab, 0x7d7871, { clearcoat: 0.3 }), marble(0x8e8a84, 0x5f5b56, { clearcoat: 0.3 })]; // 市松に濃淡
 const cellGeo = new THREE.BoxGeometry(0.94, 0.03, 0.94);
 const cellMeshes = [...Array(COLS * ROWS).keys()].map((i) => {
   const shade = (rowOf(i) + colOf(i)) % 2;
-  const m = new THREE.Mesh(cellGeo, wood(CELL_BASE[shade], { roughness: 0.7, clearcoat: 0 }));
+  const m = new THREE.Mesh(cellGeo, CELL_MAT[shade]);
   m.position.set(cellX(i), 0.016, cellZ(i));
   m.userData.cell = i;
   scene.add(m);
@@ -322,7 +313,7 @@ const cellMeshes = [...Array(COLS * ROWS).keys()].map((i) => {
 // ゴールの帯（手前・奥の外側）
 const goalGeo = new THREE.BoxGeometry(BOARD_W - 0.1, 0.03, 0.8);
 const goalMat = (color) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.28 });
-const GOAL_COLOR = { 1: 0xead3a8, 2: 0x5a3820 };
+const GOAL_COLOR = { 1: 0xffffff, 2: 0x111111 };
 const goalMeshes = {};
 for (const p of [1, 2]) {
   const m = new THREE.Mesh(goalGeo, goalMat(GOAL_COLOR[p]));
@@ -333,14 +324,14 @@ for (const p of [1, 2]) {
   goalMeshes[p] = m;
 }
 
-// 石：先手・後手は qawale と同じ明るい木・暗い木の円柱
-const CHIP_H = 0.2, CHIP_R = 0.34;
-const CHIP_GEO = new THREE.CylinderGeometry(CHIP_R, CHIP_R, CHIP_H, 32);
-const CHIP_MAT = { 1: wood(0xead3a8), 2: wood(0x5a3820) };
+// 駒：先手は白、後手は黒の大理石の立方体
+const CHIP_H = 0.56;
+const CHIP_GEO = new THREE.BoxGeometry(CHIP_H, CHIP_H, CHIP_H);
+const CHIP_MAT = { 1: marble(0xf4f2ee, 0x9c9ea4), 2: marble(0x17181b, 0x8a8d94) };
 function chipMesh(color) { return new THREE.Mesh(CHIP_GEO, CHIP_MAT[color]); }
 
 // 選べる・動ける・いま選んでいる、の強調は床に薄いリングを重ねて出す
-const ringGeo = new THREE.RingGeometry(0.3, 0.38, 36);
+const ringGeo = new THREE.RingGeometry(0.4, 0.46, 36);
 function ringMat(color, opacity) { return new THREE.MeshBasicMaterial({ color, transparent: true, opacity }); }
 const RING_STYLE = {
   pickable: ringMat(0xffd35c, 0.3),
@@ -350,7 +341,7 @@ const RING_STYLE = {
 function highlightMesh(kind, i) {
   const m = new THREE.Mesh(ringGeo, RING_STYLE[kind]);
   m.rotation.x = -Math.PI / 2;
-  m.position.set(cellX(i), 0.02, cellZ(i));
+  m.position.set(cellX(i), 0.035, cellZ(i));
   return m;
 }
 function cellHighlight(i) {
@@ -372,7 +363,7 @@ function syncScene(b = G ? G.board : DEMO) {
   b.forEach((stack, i) => {
     stack.forEach((color, h) => {
       const m = chipMesh(color);
-      m.position.set(cellX(i), h * CHIP_H, cellZ(i));
+      m.position.set(cellX(i), (h + 0.5) * CHIP_H + 0.03, cellZ(i));
       pieceGroup.add(m);
     });
     const kind = cellHighlight(i);
