@@ -71,6 +71,9 @@ button { font: inherit; color: inherit; }
 .game { height: 100%; min-height: 0; gap: 6px; }
 .status { margin: 0; font-size: 14px; min-height: 1.4em; text-align: center; }
 
+.topbar { display: flex; align-items: center; gap: 8px; width: 100%; max-width: 320px; }
+.pill--home { flex: 0 0 auto; padding: 4px 10px; font-size: 12px; }
+.status { flex: 1; }
 .hands { display: flex; justify-content: space-between; width: 100%; max-width: 320px; font-size: 13px; color: var(--muted); }
 .hands__p { display: flex; align-items: center; gap: 6px; }
 .hands__p--on { color: var(--fg); font-weight: 600; }
@@ -87,7 +90,6 @@ button { font: inherit; color: inherit; }
 /* タイトル画面の見本の盤（対局中と同じ見た目） */
 .title { height: 100%; max-height: 640px; }
 .title .board3d { flex: 1; min-height: 140px; }
-.game__home { align-self: center; }
 
 /* 石の広間。上からの白い明かりと、四隅の暗がり */
 body {

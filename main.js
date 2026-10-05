@@ -124,20 +124,25 @@ let G = null; // 対局中の状態。null ならタイトル（モード選択�
 let thinking = false;
 
 function newGame(mode) {
-  G = { mode, board: initialBoard(), turn: 1, winner: null, sel: null };
+  G = { mode, board: initialBoard(), turn: 1, winner: null, draw: false, sel: null, moveCount: 0 };
   thinking = false;
   render();
   maybeCpuTurn();
 }
 function playerLabel(p) {
+  if (G.mode === 'cpuvcpu') return p === 1 ? 'CPU 1' : 'CPU 2';
   if (G.mode === 'cpu') return p === 1 ? 'あなた' : 'CPU';
   return p === 1 ? '1人目' : '2人目';
 }
-function isCpuTurn() { return G.mode === 'cpu' && G.turn === 2; }
-function canInteract() { return !G.winner && !thinking && !isCpuTurn(); }
+function isCpuControlled(p) { return G.mode === 'cpuvcpu' || (G.mode === 'cpu' && p === 2); }
+function isCpuTurn() { return isCpuControlled(G.turn); }
+function canInteract() { return !G.winner && !G.draw && !thinking && !isCpuTurn(); }
+
+const CPUVCPU_MOVE_LIMIT = 200; // 終わらない対局を止める
 
 function applyMove(mv) {
   const mover = G.turn;
+  G.moveCount++;
   if (mv.exit) {
     G.board[mv.from] = G.board[mv.from].slice(0, -1); // 盤からは消える（ゴールへ出た）
     G.winner = mover;
@@ -145,6 +150,7 @@ function applyMove(mv) {
     G.board[mv.to].push(G.board[mv.from].pop());
     G.turn = other(mover);
     if (legalMoves(G.board, G.turn).length === 0) G.winner = mover; // 次の人が動けない
+    else if (G.mode === 'cpuvcpu' && G.moveCount >= CPUVCPU_MOVE_LIMIT) G.draw = true;
   }
   beep(!!G.winner);
   G.sel = null;
@@ -173,16 +179,18 @@ function onGoalTap(forPlayer) {
 }
 
 function maybeCpuTurn() {
-  if (!G || G.winner || !isCpuTurn()) return;
+  if (!G || G.winner || G.draw || !isCpuTurn()) return;
   thinking = true;
   render();
   const game = G;
+  // CPU 同士の観戦は手が追えるよう長めに間をあける
+  const delay = G.mode === 'cpuvcpu' ? 600 + Math.random() * 200 : 300;
   setTimeout(() => {
     if (G !== game) return;
     const mv = chooseCpuMove(G.board, G.turn);
     thinking = false;
     applyMove(mv);
-  }, 300);
+  }, delay);
 }
 
 // ---- 3D の盤（three.js）。盤も駒も磨いた大理石 ----
@@ -443,6 +451,7 @@ function titleHTML() {
       <div class="board3d" id="board3d"></div>
       <button class="pill pill--big" data-start="cpu">CPU と対戦</button>
       <button class="pill pill--big" data-start="2p">2人で対戦（1台で交互）</button>
+      <button class="pill pill--big" data-start="cpuvcpu">CPU 同士の対戦を見る</button>
     </div>`;
 }
 function bindTitle() {
@@ -450,7 +459,8 @@ function bindTitle() {
 }
 
 function statusText() {
-  if (thinking) return 'CPU が考え中…';
+  if (thinking) return `${playerLabel(G.turn)} が考え中…`;
+  if (G.draw) return '引き分け';
   if (G.winner) return `${playerLabel(G.winner)} の勝ち！`;
   return `${playerLabel(G.turn)} の番：${G.sel == null ? '動かす駒をえらぶ' : '行き先をえらぶ'}`;
 }
@@ -460,31 +470,35 @@ function gameHTML() {
       <span class="hands__p${G.turn === 1 && !G.winner ? ' hands__p--on' : ''}"><span class="chip chip--a"></span>${playerLabel(1)}</span>
       <span class="hands__p${G.turn === 2 && !G.winner ? ' hands__p--on' : ''}"><span class="chip chip--b"></span>${playerLabel(2)}</span>
     </div>`;
-  const again = G.winner ? `
+  const result = (G.winner || G.draw) ? `
     <div class="result">
       <button class="pill pill--big" data-again>もう一度</button>
       <button class="pill" data-title>モードを選び直す</button>
     </div>` : '';
   return `
     <div class="game">
-      <p class="status">${statusText()}</p>
+      <div class="topbar">
+        <button class="pill pill--home" data-title>ホーム</button>
+        <p class="status">${statusText()}</p>
+      </div>
       ${handsRow}
       <div class="board3d${thinking ? ' board3d--busy' : ''}" id="board3d"></div>
       <p class="hint">ドラッグで回す・ピンチで寄る</p>
-      ${G.winner ? '' : '<button class="pill game__home" data-title>ホームに戻る</button>'}
-      ${again}
+      ${result}
     </div>`;
 }
 function bindGame() {
   const again = document.querySelector('[data-again]');
   if (again) again.addEventListener('click', () => newGame(G.mode));
-  const title = document.querySelector('[data-title]');
-  if (title) title.addEventListener('click', () => {
-    if (!G.winner && confirm('対局をやめてホームに戻りますか？') === false) return;
-    G = null;
-    thinking = false;
-    render();
-  });
+  document.querySelectorAll('[data-title]').forEach((b) => b.addEventListener('click', goHome));
+}
+// 対局・観戦画面の「ホーム」。決着済み（勝ち負け・引き分け）や観戦中は確認なしで戻る
+function goHome() {
+  const settled = !!G.winner || !!G.draw;
+  if (!settled && G.mode !== 'cpuvcpu' && confirm('対局をやめてホームに戻りますか？') === false) return;
+  G = null;
+  thinking = false;
+  render();
 }
 
 render();
