@@ -97,7 +97,7 @@ let G = null; // 対局中の状態。null ならタイトル（モード選択�
 let thinking = false;
 
 function newGame(mode, strength) {
-  G = { mode, strength: strength || load('strength', 'mid'), board: initialBoard(), turn: 1, winner: null, draw: false, sel: null, moveCount: 0 };
+  G = { mode, strength: strength || load('strength', 'mid'), board: initialBoard(), turn: 1, winner: null, draw: false, sel: null, moveCount: 0, history: [] };
   thinking = false;
   render();
   maybeCpuTurn();
@@ -116,6 +116,7 @@ const CPUVCPU_MOVE_LIMIT = 200; // 終わらない対局を止める
 function applyMove(mv) {
   const mover = G.turn;
   G.moveCount++;
+  G.history.push([G.board.map((st) => st.slice()), G.turn]); // 動かす前の局面（CPU が同じ形に戻さないため）
   moveAnim = { mv, fromH: G.board[mv.from].length - 1, t0: performance.now() };
   if (mv.exit) {
     G.exited = { from: mv.from, color: G.board[mv.from].at(-1) }; // ゴールの帯の上に残して見せる
@@ -169,7 +170,7 @@ function maybeCpuTurn() {
       applyMove(e.data.mv);
     }, delay);
   };
-  cpu.postMessage({ id, board: G.board, player: G.turn, strength: G.strength });
+  cpu.postMessage({ id, board: G.board, player: G.turn, strength: G.strength, history: G.history.slice(-60) });
 }
 
 // ---- 3D の盤（three.js）。盤も駒も磨いた大理石 ----

@@ -133,16 +133,22 @@ const MAX_PLY = 40;
 const killerFrom = new Int8Array(MAX_PLY).fill(-1);
 const killerTo = new Int8Array(MAX_PLY).fill(-1);
 
+// これまでに盤に出た局面（手番込みのハッシュ A → B）。同じ局面に戻る手を減点し、千日手で止まらないようにする。
+const REPEAT_PENALTY = 50;
+let seen = new Map();
+
 let nodes = 0;
 // player の番として最善手を探す（negamax + αβ）。盤はグローバルな stacks/heights を直接 make/unmake する。
 function search(player, depth, alpha, beta, ply, deadline) {
   if ((++nodes & 511) === 0 && performance.now() > deadline) throw TIMEOUT;
 
+  const ta = (hashA ^ TURN_A[player]) >>> 0, tb = (hashB ^ TURN_B[player]) >>> 0;
+  if (ply > 0 && seen.get(ta) === tb) return { value: REPEAT_PENALTY, mv: null }; // 戻した側（親）が損をする
+
   const moves = genMoves(player);
   if (moves.length === 0) return { value: -(WIN - ply), mv: null }; // 動けない＝負け
   for (const mv of moves) { if (mv.exit) return { value: WIN - ply, mv }; } // 出られるならそれが最善
 
-  const ta = (hashA ^ TURN_A[player]) >>> 0, tb = (hashB ^ TURN_B[player]) >>> 0;
   const ti = ttIndex(ta, tb);
   let hintFrom = -1, hintTo = -1;
   if (ttUsed[ti] && ttA[ti] === ta && ttB[ti] === tb) {
@@ -185,8 +191,13 @@ function search(player, depth, alpha, beta, ply, deadline) {
 
 function toExternal(mv) { return mv.exit ? { from: mv.from, exit: true } : { from: mv.from, to: mv.to }; }
 
-export function bestMove(board, player, strength) {
+export function bestMove(board, player, strength, history = []) {
   nodes = 0;
+  seen = new Map();
+  for (const [b, turn] of history) {
+    loadBoard(b);
+    seen.set((hashA ^ TURN_A[turn]) >>> 0, (hashB ^ TURN_B[turn]) >>> 0);
+  }
   loadBoard(board);
   const moves = genMoves(player);
   if (!moves.length) return null;
@@ -209,6 +220,7 @@ export function bestMove(board, player, strength) {
   }
 
   killerFrom.fill(-1); killerTo.fill(-1);
+  ttUsed.fill(0); // 減点は局の履歴しだいなので、前の手の置換表は使わない
 
   if (strength === 'mid') {
     const r = search(player, 3, -Infinity, Infinity, 0, performance.now() + 2000);
@@ -216,7 +228,6 @@ export function bestMove(board, player, strength) {
   }
 
   // 最強: 時間の許す限り反復深化
-  ttUsed.fill(0);
   const deadline = performance.now() + 1500;
   let best = null;
   for (let depth = 1; depth <= 40; depth++) {
@@ -234,8 +245,8 @@ export function bestMove(board, player, strength) {
 
 if (typeof WorkerGlobalScope !== 'undefined') {
   self.onmessage = (e) => {
-    const { id, board, player, strength } = e.data;
-    const mv = bestMove(board, player, strength);
+    const { id, board, player, strength, history } = e.data;
+    const mv = bestMove(board, player, strength, history);
     self.postMessage({ id, mv });
   };
 }
