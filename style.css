@@ -1,0 +1,116 @@
+:root {
+  --bg: #2d2a26;
+  --fg: #eceef3;
+  --muted: #9aa0ab;
+  --accent: #ffd35c;
+}
+
+* { box-sizing: border-box; }
+
+/* Safari 26 の上下バーの色は html の背景から取られる。body と同じ色にしておく */
+html { background-color: var(--bg); -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background-color: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+button { font: inherit; color: inherit; }
+[hidden] { display: none !important; }
+
+/* 画面の端に置くものはセーフエリアの分だけ内側に。高さは 100vh ではなく 100dvh */
+.app {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding:
+    max(12px, env(safe-area-inset-top))
+    max(12px, env(safe-area-inset-right))
+    max(12px, env(safe-area-inset-bottom))
+    max(12px, env(safe-area-inset-left));
+}
+.bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bar__title { margin: 0; font-size: 18px; }
+.bar__actions { display: flex; gap: 8px; }
+.pill {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.stage {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  place-items: safe center;
+  overflow-y: auto;             /* ルールを開いたときにスクロールできるように */
+  touch-action: manipulation;   /* ダブルタップ拡大を止める */
+  user-select: none;
+  -webkit-user-select: none;
+}
+.credit { text-align: center; font-size: 12px; color: var(--muted); }
+.credit a { color: inherit; }
+
+/* 全画面のオーバーレイは opacity ではなく display: none で隠す */
+
+:root {
+  --p1: #ead3a8;
+  --p2: #5a3820;
+}
+
+.title, .game { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; }
+.title { max-width: 340px; }
+.title h2 { margin: 0; }
+.hint { margin: 0; font-size: 13px; color: var(--muted); text-align: center; }
+.pill--big { padding: 12px 20px; font-size: 15px; width: 100%; max-width: 260px; }
+
+/* 対局中は盤を画面いっぱいに広げる */
+.game { height: 100%; min-height: 0; gap: 6px; }
+.status { margin: 0; font-size: 14px; min-height: 1.4em; text-align: center; }
+
+.hands { display: flex; justify-content: space-between; width: 100%; max-width: 320px; font-size: 13px; color: var(--muted); }
+.hands__p { display: flex; align-items: center; gap: 6px; }
+.hands__p--on { color: var(--fg); font-weight: 600; }
+.chip { display: inline-block; width: 9px; height: 9px; border-radius: 3px; }
+.chip--a { background: var(--p1); }
+.chip--b { background: var(--p2); }
+
+.board3d { width: 100%; flex: 1; min-height: 200px; }
+.board3d__canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.board3d--busy { opacity: 0.85; }
+
+.result { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 260px; }
+
+/* タイトル画面の見本の盤（対局中と同じ見た目） */
+.title .board3d { flex: none; height: 240px; }
+.game__home { align-self: center; }
+
+/* ランプに照らされた机の部屋。上からの暖かい明かりと、四隅の暗がり */
+body {
+  min-height: 100dvh;
+  background-image:
+    radial-gradient(ellipse 80% 55% at 50% 42%, rgba(255, 196, 120, 0.14), transparent 72%),
+    radial-gradient(ellipse 120% 90% at 50% 45%, transparent 50%, rgba(0, 0, 0, 0.5));
+}
+.title h2, h2.title {
+  font-size: 30px;
+  letter-spacing: 0.08em;
+  color: #f2ddb4;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45), 0 0 18px rgba(255, 190, 110, 0.25);
+}
+/* ホームの大きなボタンは木の札のように */
+.pill--big {
+  background: linear-gradient(#7b5337, #5b3b25);
+  border-color: rgba(255, 220, 170, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 230, 190, 0.22), 0 2px 6px rgba(0, 0, 0, 0.35);
+  color: #f6ead6;
+}
+.pill--big:active { transform: translateY(1px); box-shadow: inset 0 1px 0 rgba(255, 230, 190, 0.15), 0 1px 3px rgba(0, 0, 0, 0.35); }
+/* 天板が 3D の枠で四角く切れて見えないよう、上下のふちをぼかす */
+canvas {
+  -webkit-mask-image: linear-gradient(transparent, #000 7%, #000 93%, transparent);
+  mask-image: linear-gradient(transparent, #000 7%, #000 93%, transparent);
+}
